@@ -11,13 +11,17 @@ contract LiquidityVault is ERC4626, AccessControl, Pausable {
     using SafeERC20 for ERC20;
     bytes32 public constant ENGINE_ROLE = keccak256("ENGINE_ROLE");
     uint256 public outstandingLoans;
-    constructor(ERC20 asset_, address admin) ERC20("WhiteSETTL Liquidity Share", "wsLQ") ERC4626(asset_) { _grantRole(DEFAULT_ADMIN_ROLE, admin); }
+    constructor(ERC20 asset_, address admin) ERC20("WhiteSETTL Liquidity Share", "wsLQ") ERC4626(asset_) { require(address(asset_).code.length > 0 && admin != address(0), "invalid config"); require(asset_.decimals() <= 36, "invalid decimals"); _grantRole(DEFAULT_ADMIN_ROLE, admin); }
     function totalAssets() public view override returns (uint256) { return ERC20(asset()).balanceOf(address(this)) + outstandingLoans; }
     /// @dev Cap redemptions to idle funds so withdrawals cannot promise lent-out liquidity.
     function maxWithdraw(address owner) public view override returns (uint256) { return _convertToAssets(balanceOf(owner), Math.Rounding.Floor) < ERC20(asset()).balanceOf(address(this)) ? _convertToAssets(balanceOf(owner), Math.Rounding.Floor) : ERC20(asset()).balanceOf(address(this)); }
     function maxRedeem(address owner) public view override returns (uint256) { uint256 cashShares = _convertToShares(ERC20(asset()).balanceOf(address(this)), Math.Rounding.Floor); return balanceOf(owner) < cashShares ? balanceOf(owner) : cashShares; }
     function lend(address recipient, uint256 assets) external onlyRole(ENGINE_ROLE) whenNotPaused { require(assets <= ERC20(asset()).balanceOf(address(this)), "insufficient liquidity"); outstandingLoans += assets; ERC20(asset()).safeTransfer(recipient, assets); }
-    function receiveRepayment(uint256 assets) external onlyRole(ENGINE_ROLE) { outstandingLoans -= assets < outstandingLoans ? assets : outstandingLoans; ERC20(asset()).safeTransferFrom(msg.sender, address(this), assets); }
+    function receiveRepayment(uint256 principal, uint256 repayment) external onlyRole(ENGINE_ROLE) {
+        require(principal > 0 && principal <= outstandingLoans && repayment >= principal, "invalid repayment");
+        outstandingLoans -= principal;
+        ERC20(asset()).safeTransferFrom(msg.sender, address(this), repayment);
+    }
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) { _pause(); }
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) { _unpause(); }
 }

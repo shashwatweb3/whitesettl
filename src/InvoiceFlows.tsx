@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAccount, useConnect, usePublicClient, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { formatUnits, getAddress, isAddress, isAddressEqual, keccak256, parseEventLogs, parseUnits, toBytes, zeroAddress, type Address, type Hash } from "viem";
 import { Check, Copy, ExternalLink, ShieldCheck, Wallet } from "lucide-react";
-import { contractDeploymentBlock, erc20Abi, expectedTokenDecimals, invalidTokenDecimalsConfig, invoiceIssuedEvent, registryAbi, routerAbi, tokenSymbol } from "./contracts";
+import { contractDeploymentBlock, erc20Abi, expectedTokenDecimals, invalidTokenDecimalsConfig, invoiceIssuedEvent, invoiceSellerChangedEvent, registryAbi, routerAbi, tokenSymbol } from "./contracts";
 import { contracts, explorerTx, whitechainSepolia } from "./network";
 
 const registryConfigured = Boolean(contracts.registry && contracts.paymentToken);
@@ -31,27 +31,28 @@ export function useSellerInvoices() {
     refetchInterval: 12_000,
     queryFn: async (): Promise<SellerInvoice[]> => {
       if (!address || !publicClient || !contracts.registry || contractDeploymentBlock === undefined) return [];
-      const recentLogs = [];
+      const recentInvoiceEvents: { id: bigint; blockNumber: bigint; logIndex: number }[] = [];
       let endBlock = await publicClient.getBlockNumber();
-      while (endBlock >= contractDeploymentBlock && recentLogs.length < 100) {
+      while (endBlock >= contractDeploymentBlock && recentInvoiceEvents.length < 100) {
         const startBlock = endBlock - contractDeploymentBlock > 1_999n ? endBlock - 1_999n : contractDeploymentBlock;
-        const blockLogs = await publicClient.getLogs({
-          address: contracts.registry,
-          event: invoiceIssuedEvent,
-          args: { seller: address },
-          fromBlock: startBlock,
-          toBlock: endBlock,
-        });
-        recentLogs.push(...blockLogs.reverse());
+        const [issuedLogs, transferredLogs] = await Promise.all([
+          publicClient.getLogs({ address: contracts.registry, event: invoiceIssuedEvent, args: { seller: address }, fromBlock: startBlock, toBlock: endBlock }),
+          publicClient.getLogs({ address: contracts.registry, event: invoiceSellerChangedEvent, args: { to: address }, fromBlock: startBlock, toBlock: endBlock }),
+        ]);
+        recentInvoiceEvents.push(...issuedLogs.flatMap(log => log.args.invoiceId === undefined ? [] : [{ id: log.args.invoiceId, blockNumber: log.blockNumber, logIndex: log.logIndex }]));
+        recentInvoiceEvents.push(...transferredLogs.flatMap(log => log.args.invoiceId === undefined ? [] : [{ id: log.args.invoiceId, blockNumber: log.blockNumber, logIndex: log.logIndex }]));
         if (startBlock === 0n) break;
         endBlock = startBlock - 1n;
       }
-      return Promise.all(recentLogs.slice(0, 100).map(async (log) => {
-        const id = log.args.invoiceId;
-        if (id === undefined) throw new Error("InvoiceIssued event did not include an invoice ID.");
+      recentInvoiceEvents.sort((left, right) => left.blockNumber === right.blockNumber
+        ? right.logIndex - left.logIndex
+        : left.blockNumber > right.blockNumber ? -1 : 1);
+      const uniqueIds = [...new Set(recentInvoiceEvents.map(event => event.id.toString()))].map(BigInt).slice(0, 100);
+      const invoices = await Promise.all(uniqueIds.map(async id => {
         const invoice = await publicClient.readContract({ address: contracts.registry!, abi: registryAbi, functionName: "getInvoice", args: [id] });
         return { id, ...invoice };
       }));
+      return invoices.filter(invoice => isAddressEqual(invoice.seller, address));
     },
   });
 }

@@ -4,13 +4,26 @@ pragma solidity 0.8.24;
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
+interface IInvoiceNFTRegistry {
+    function onInvoiceNFTTransfer(uint256 invoiceId, address from, address to) external;
+}
+
 /// @notice Receipt of an issued invoice. The registry is its sole minter/status controller.
 contract InvoiceNFT is ERC721, AccessControl {
     bytes32 public constant REGISTRY_ROLE = keccak256("REGISTRY_ROLE");
     mapping(uint256 => bool) public financed;
+    IInvoiceNFTRegistry public registry;
 
     error InvoiceFinanced();
-    constructor(address admin) ERC721("WhiteSETTL Invoice", "WSI") { _grantRole(DEFAULT_ADMIN_ROLE, admin); }
+    error InvoiceNotTransferable();
+    error RegistryAlreadySet();
+    constructor(address admin) ERC721("WhiteSETTL Invoice", "WSI") { require(admin != address(0), "zero admin"); _grantRole(DEFAULT_ADMIN_ROLE, admin); }
+
+    function setRegistry(IInvoiceNFTRegistry registry_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (address(registry) != address(0)) revert RegistryAlreadySet();
+        require(address(registry_) != address(0) && address(registry_).code.length > 0, "invalid registry");
+        registry = registry_;
+    }
 
     function mint(address seller, uint256 invoiceId) external onlyRole(REGISTRY_ROLE) { _safeMint(seller, invoiceId); }
     function setFinanced(uint256 invoiceId, bool value) external onlyRole(REGISTRY_ROLE) { financed[invoiceId] = value; }
@@ -20,7 +33,15 @@ contract InvoiceNFT is ERC721, AccessControl {
     }
 
     function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
-        if (financed[tokenId] && ownerOf(tokenId) != address(0) && to != address(0)) revert InvoiceFinanced();
-        return super._update(to, tokenId, auth);
+        address from = _ownerOf(tokenId);
+        if (from != address(0) && to != address(0)) {
+            if (financed[tokenId]) revert InvoiceFinanced();
+            if (address(registry) == address(0)) revert InvoiceNotTransferable();
+        }
+        address previousOwner = super._update(to, tokenId, auth);
+        if (from != address(0) && to != address(0)) {
+            registry.onInvoiceNFTTransfer(tokenId, from, to);
+        }
+        return previousOwner;
     }
 }

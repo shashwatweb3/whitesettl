@@ -17,6 +17,10 @@ describe("WhiteSETTL TestUSD (testnet only)", function () {
     expect(await token.balanceOf(buyer.address)).eq(25_000_000n);
     await expect(token.connect(unauthorized).mint(seller.address, 1n)).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount");
     await expect(token.mint(ethers.ZeroAddress, 1n)).to.be.revertedWithCustomError(token, "ZeroAddress");
+    const allocation = ethers.keccak256(ethers.toUtf8Bytes("seller-allocation"));
+    await token.mintOnce(allocation, seller.address, 1_000_000n);
+    expect(await token.usedMintAllocations(allocation)).eq(true);
+    await expect(token.mintOnce(allocation, seller.address, 1_000_000n)).revertedWith("allocation used");
   });
 
   it("supports the complete two-wallet invoice payment and rejects duplicate payment", async () => {
@@ -33,14 +37,18 @@ describe("WhiteSETTL TestUSD (testnet only)", function () {
     const engine = await Engine.deploy(admin.address, await registry.getAddress(), await vault.getAddress());
     const Reputation = await ethers.getContractFactory("Reputation");
     const reputation = await Reputation.deploy(admin.address);
+    await nft.setRegistry(await registry.getAddress());
+    await engine.setReputation(await reputation.getAddress());
     const Router = await ethers.getContractFactory("SettlementRouter");
     const router = await Router.deploy(admin.address, treasury.address, 50, await registry.getAddress(), await engine.getAddress(), await reputation.getAddress());
 
     await nft.grantRole(await nft.REGISTRY_ROLE(), await registry.getAddress());
+    await registry.grantRole(await registry.INVOICE_NFT_ROLE(), await nft.getAddress());
     await registry.grantRole(await registry.FINANCER_ROLE(), await engine.getAddress());
     await registry.grantRole(await registry.SETTLER_ROLE(), await router.getAddress());
     await vault.grantRole(await vault.ENGINE_ROLE(), await engine.getAddress());
     await reputation.grantRole(await reputation.REPORTER_ROLE(), await router.getAddress());
+    await reputation.grantRole(await reputation.REPORTER_ROLE(), await engine.getAddress());
     await engine.grantRole(await engine.SETTLER_ROLE(), await router.getAddress());
 
     const invoiceAmount = 12_480_000_000n;

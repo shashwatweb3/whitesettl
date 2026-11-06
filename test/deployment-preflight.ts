@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { requireDistinctDemoWallets } from "../scripts/deployment-utils";
+import { getRuntimeCodeHash, requireDistinctDemoWallets, requireRuntimeCodeHash } from "../scripts/deployment-utils";
 
 describe("Whitechain Sepolia deployment preflight", function () {
   it("accepts exactly two distinct test wallets separate from the deployer", async () => {
@@ -19,5 +19,18 @@ describe("Whitechain Sepolia deployment preflight", function () {
       .to.throw("TEST_WALLETS must contain exactly two addresses: seller and buyer.");
     expect(() => requireDistinctDemoWallets(deployer.address, ["not-an-address", buyer.address]))
       .to.throw("TEST_WALLETS[0] must be a non-zero EVM address.");
+  });
+
+  it("only reuses deployment addresses when the runtime bytecode hash matches", async () => {
+    const [admin] = await ethers.getSigners();
+    const token = await (await ethers.getContractFactory("TestUSD")).deploy(admin.address);
+    await token.waitForDeployment();
+    const address = await token.getAddress();
+    const runtimeHash = await getRuntimeCodeHash(address, "TestUSD");
+    expect(await requireRuntimeCodeHash(address, runtimeHash, "TestUSD")).eq(runtimeHash);
+    await expect(requireRuntimeCodeHash(address, ethers.keccak256("0x1234"), "TestUSD"))
+      .to.be.rejectedWith("runtime bytecode changed since the deployment checkpoint");
+    await expect(requireRuntimeCodeHash(address, "0x1234", "TestUSD"))
+      .to.be.rejectedWith("checkpoint has an invalid runtime code hash");
   });
 });

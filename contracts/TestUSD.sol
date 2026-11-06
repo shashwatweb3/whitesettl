@@ -7,6 +7,7 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 /// @notice WhiteSETTL testnet-only payment token. This token is not USDC, USDT, or a production asset.
 contract TestUSD is ERC20, AccessControl {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    mapping(bytes32 => bool) public usedMintAllocations;
 
     error ZeroAddress();
 
@@ -22,6 +23,13 @@ contract TestUSD is ERC20, AccessControl {
 
     function mint(address account, uint256 amount) external onlyRole(MINTER_ROLE) {
         if (account == address(0)) revert ZeroAddress();
+        _mint(account, amount);
+    }
+
+    function mintOnce(bytes32 allocationId, address account, uint256 amount) external onlyRole(MINTER_ROLE) {
+        require(allocationId != bytes32(0) && !usedMintAllocations[allocationId], "allocation used");
+        if (account == address(0)) revert ZeroAddress();
+        usedMintAllocations[allocationId] = true;
         _mint(account, amount);
     }
 }

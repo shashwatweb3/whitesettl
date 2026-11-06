@@ -32,6 +32,17 @@ export const invoiceIssuedEvent = {
   ],
 } as const;
 
+export const invoiceSellerChangedEvent = {
+  type: "event",
+  name: "InvoiceSellerChanged",
+  anonymous: false,
+  inputs: [
+    { indexed: true, name: "invoiceId", type: "uint256" },
+    { indexed: true, name: "from", type: "address" },
+    { indexed: true, name: "to", type: "address" },
+  ],
+} as const;
+
 export const registryAbi = [
   {
     type: "function",
@@ -62,6 +73,7 @@ export const registryAbi = [
     outputs: [{ name: "", type: "address" }],
   },
   invoiceIssuedEvent,
+  invoiceSellerChangedEvent,
 ] as const;
 
 export const routerAbi = [
@@ -90,6 +102,136 @@ export const routerAbi = [
       { indexed: false, name: "repayment", type: "uint256" },
       { indexed: false, name: "sellerProceeds", type: "uint256" },
     ],
+  },
+] as const;
+
+export const advanceEngineAbi = [
+  {
+    type: "function",
+    name: "requestAdvance",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "id", type: "uint256" },
+      { name: "ltvBps", type: "uint16" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "advances",
+    stateMutability: "view",
+    inputs: [{ name: "id", type: "uint256" }],
+    outputs: [
+      { name: "principal", type: "uint128" },
+      { name: "repayment", type: "uint128" },
+      { name: "active", type: "bool" },
+    ],
+  },
+  {
+    type: "function",
+    name: "MAX_LTV_BPS",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint16" }],
+  },
+  {
+    type: "event",
+    name: "Advanced",
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: "invoiceId", type: "uint256" },
+      { indexed: true, name: "seller", type: "address" },
+      { indexed: false, name: "principal", type: "uint256" },
+      { indexed: false, name: "repayment", type: "uint256" },
+    ],
+  },
+] as const;
+
+export const vaultAbi = [
+  {
+    type: "function",
+    name: "asset",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "totalAssets",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "outstandingLoans",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "maxWithdraw",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "previewDeposit",
+    stateMutability: "view",
+    inputs: [{ name: "assets", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "deposit",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "assets", type: "uint256" },
+      { name: "receiver", type: "address" },
+    ],
+    outputs: [{ name: "shares", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "assets", type: "uint256" },
+      { name: "receiver", type: "address" },
+      { name: "owner", type: "address" },
+    ],
+    outputs: [{ name: "shares", type: "uint256" }],
+  },
+] as const;
+
+export const reputationAbi = [
+  {
+    type: "function",
+    name: "profiles",
+    stateMutability: "view",
+    inputs: [{ name: "business", type: "address" }],
+    outputs: [
+      { name: "paidInvoices", type: "uint64" },
+      { name: "latePayments", type: "uint64" },
+      { name: "settledVolume", type: "uint128" },
+      { name: "outstandingFinanced", type: "uint128" },
+    ],
+  },
+  {
+    type: "function",
+    name: "tier",
+    stateMutability: "view",
+    inputs: [{ name: "business", type: "address" }],
+    outputs: [{ name: "", type: "uint8" }],
   },
 ] as const;
 

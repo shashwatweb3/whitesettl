@@ -1,5 +1,5 @@
 import { ethers } from "hardhat";
-import { assertSepoliaDeploymentTarget, deployProtocol, requireAddress, saveDeploymentRegistry } from "./deployment-utils";
+import { assertSepoliaDeploymentTarget, deployProtocol, loadDeploymentProgress, requireAddress, saveDeploymentRegistry } from "./deployment-utils";
 
 async function main() {
   const privateKey = process.env.DEPLOYER_PRIVATE_KEY;
@@ -8,8 +8,9 @@ async function main() {
   const paymentToken = requireAddress(process.env.PAYMENT_TOKEN_ADDRESS, "PAYMENT_TOKEN_ADDRESS");
   const [deployer] = await ethers.getSigners();
   if (!deployer) throw new Error("No deployer account is available. Check DEPLOYER_PRIVATE_KEY.");
+  const progress = loadDeploymentProgress({ chainId: target.chainId, deployer: deployer.address, flow: "external-token", paymentToken, testWallets: [] });
   const treasury = requireAddress(process.env.TREASURY_ADDRESS || deployer.address, "TREASURY_ADDRESS");
-  const protocol = await deployProtocol(paymentToken, treasury);
+  const protocol = await deployProtocol(paymentToken, treasury, progress);
   const registry = {
     ...target,
     nativeCurrency: "WBT",
