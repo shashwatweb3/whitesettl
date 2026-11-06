@@ -11,6 +11,7 @@ cp .env.example .env
 npm install
 npm run compile
 npm run test
+npm run typecheck
 npm run dev
 ```
 
@@ -31,17 +32,19 @@ Mainnet is intentionally absent from Hardhat configuration. Never add a producti
 1. Obtain a verified Whitechain Sepolia ERC-20 address from an official Whitechain source.
 2. Set `PAYMENT_TOKEN_ADDRESS` and `DEPLOYER_PRIVATE_KEY` only in your local `.env`.
 3. Run `npm run deploy:testnet`.
-4. Copy the emitted `deployments/whitechain-sepolia.json` addresses into the corresponding `VITE_*` values.
+4. Copy the emitted `deployments/whitechain-sepolia.json` addresses into the corresponding `VITE_*` values, including `VITE_CONTRACT_DEPLOYMENT_BLOCK`.
 5. Verify using the Whitechain Explorer’s Standard JSON Input flow; its verifier does not require a fabricated API key.
 
-The deployment script fails closed when `PAYMENT_TOKEN_ADDRESS` is missing or invalid. It does not mint a fake asset and it never targets mainnet.
+The deployment script fails closed when signer/token configuration is missing, the network is not Whitechain Sepolia, or the token has no contract code. It does not mint a fake asset and it never targets mainnet. Running the deployment script requires explicit approval.
 
 ## Contract flow
 
 `InvoiceRegistry` issues each invoice and mints an `InvoiceNFT`. It accepts only the verified `paymentAsset` chosen at deployment. `AdvanceEngine` locks financing status and lends ERC-4626 vault liquidity within protocol constraints. A buyer calls `SettlementRouter.pay`: it pulls the exact invoice asset, applies a bounded fee, repays an active advance, forwards seller proceeds, clears the invoice, and records a protocol-local reputation event in one transaction. Vault withdrawals are limited to cash currently held by the vault; lent liquidity cannot be withdrawn until repaid.
 
-## Current application status
+## Application status
 
-The screens are a connected-wallet UI shell and accurately label invoice/payment actions as previews while no verified token or deployed contract addresses are configured. They do not fabricate a transaction, payment confirmation, or invoice issuance. After deployment, the remaining frontend milestone is binding form and payment inputs to the generated contract addresses and ABI calls.
+With verified Sepolia addresses configured, invoice creation calls `InvoiceRegistry.issueInvoice`, waits for a successful receipt, and builds the share URL from the emitted `InvoiceIssued` event. The public payment route reads the invoice from the registry, verifies the configured asset and token decimals, requires the listed buyer wallet, requests an exact ERC-20 allowance, calls `SettlementRouter.pay`, and shows success only after the receipt is confirmed. Explorer links use the real transaction hash. The dashboard reads seller-scoped issuance events from the configured deployment block and fetches each invoice's current status; it refreshes every 12 seconds.
+
+No contract addresses or verified payment-token address are included in this repository. Therefore the live Whitechain transaction flow cannot be exercised until an approved Sepolia deployment and official token address are supplied. Local contract tests use only `MockStablecoin` and `MockStablecoin18`. Financing, liquidity-provider actions, and reputation reads are implemented in contracts but are not yet connected to frontend transactions or live profile data; their screens identify this limitation rather than displaying sample figures.
 
 See [REFERENCE_AUDIT.md](REFERENCE_AUDIT.md) for the upstream assessment and migration rationale.

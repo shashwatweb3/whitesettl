@@ -16,7 +16,7 @@ contract SettlementRouter is AccessControl, ReentrancyGuard {
     function pay(uint256 id) external nonReentrant {
         InvoiceRegistry.Invoice memory i = registry.getInvoice(id); require(i.buyer == msg.sender, "buyer only"); require(i.status == InvoiceRegistry.Status.Issued || i.status == InvoiceRegistry.Status.Financed, "not payable");
         IERC20 token = IERC20(i.asset); token.safeTransferFrom(msg.sender, address(this), i.amount); uint256 fee = uint256(i.amount) * feeBps / 10_000; uint256 repayment;
-        if (i.status == InvoiceRegistry.Status.Financed) { AdvanceEngine.Advance memory a = engine.advances(id); repayment = a.repayment; require(repayment + fee <= i.amount, "waterfall deficit"); token.safeTransfer(address(engine), repayment); engine.repay(id); }
+        if (i.status == InvoiceRegistry.Status.Financed) { (, uint128 advanceRepayment, bool active) = engine.advances(id); require(active, "no advance"); repayment = advanceRepayment; require(repayment + fee <= i.amount, "waterfall deficit"); token.safeTransfer(address(engine), repayment); engine.repay(id); }
         token.safeTransfer(treasury, fee); uint256 proceeds = uint256(i.amount) - fee - repayment; token.safeTransfer(i.seller, proceeds); registry.settle(id); reputation.reportSettlement(i.seller, i.amount, block.timestamp > i.dueDate, 0); emit InvoiceSettled(id, msg.sender, fee, repayment, proceeds);
     }
 }

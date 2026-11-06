@@ -15,15 +15,15 @@ contract InvoiceRegistry is AccessControl, Pausable {
     uint256 public nextInvoiceId = 1;
     mapping(uint256 => Invoice) private invoices;
     mapping(bytes32 => bool) public usedReferences;
-    event InvoiceIssued(uint256 indexed invoiceId, address indexed seller, address indexed buyer, address asset, uint256 amount, uint64 dueDate, bytes32 reference, bytes32 metadataHash);
+    event InvoiceIssued(uint256 indexed invoiceId, address indexed seller, address indexed buyer, address asset, uint256 amount, uint64 dueDate, bytes32 invoiceReference, bytes32 metadataHash);
     event InvoiceStatusChanged(uint256 indexed invoiceId, Status status);
 
     constructor(address admin, InvoiceNFT nft, address paymentAsset_) { require(paymentAsset_ != address(0), "zero asset"); _grantRole(DEFAULT_ADMIN_ROLE, admin); invoiceNFT = nft; paymentAsset = paymentAsset_; }
-    function issueInvoice(address buyer, address asset, uint128 amount, uint64 dueDate, bytes32 reference, bytes32 metadataHash) external whenNotPaused returns (uint256 invoiceId) {
-        require(buyer != address(0) && asset == paymentAsset, "unsupported asset"); require(amount > 0 && dueDate > block.timestamp, "invalid terms"); require(!usedReferences[reference], "reference used");
-        invoiceId = nextInvoiceId++; usedReferences[reference] = true;
+    function issueInvoice(address buyer, address asset, uint128 amount, uint64 dueDate, bytes32 invoiceReference, bytes32 metadataHash) external whenNotPaused returns (uint256 invoiceId) {
+        require(buyer != address(0) && asset == paymentAsset, "unsupported asset"); require(amount > 0 && dueDate > block.timestamp, "invalid terms"); require(!usedReferences[invoiceReference], "reference used");
+        invoiceId = nextInvoiceId++; usedReferences[invoiceReference] = true;
         invoices[invoiceId] = Invoice(msg.sender, buyer, asset, amount, uint64(block.timestamp), dueDate, Status.Issued, metadataHash);
-        invoiceNFT.mint(msg.sender, invoiceId); emit InvoiceIssued(invoiceId, msg.sender, buyer, asset, amount, dueDate, reference, metadataHash);
+        invoiceNFT.mint(msg.sender, invoiceId); emit InvoiceIssued(invoiceId, msg.sender, buyer, asset, amount, dueDate, invoiceReference, metadataHash);
     }
     function getInvoice(uint256 id) external view returns (Invoice memory) { return invoices[id]; }
     function markFinanced(uint256 id) external onlyRole(FINANCER_ROLE) { Invoice storage i = invoices[id]; require(i.status == Status.Issued, "not eligible"); i.status = Status.Financed; invoiceNFT.setFinanced(id, true); emit InvoiceStatusChanged(id, Status.Financed); }

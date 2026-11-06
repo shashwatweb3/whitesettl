@@ -15,6 +15,10 @@ contract InvoiceNFT is ERC721, AccessControl {
     function mint(address seller, uint256 invoiceId) external onlyRole(REGISTRY_ROLE) { _safeMint(seller, invoiceId); }
     function setFinanced(uint256 invoiceId, bool value) external onlyRole(REGISTRY_ROLE) { financed[invoiceId] = value; }
 
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721, AccessControl) returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+
     function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
         if (financed[tokenId] && ownerOf(tokenId) != address(0) && to != address(0)) revert InvoiceFinanced();
         return super._update(to, tokenId, auth);

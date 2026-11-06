@@ -2,6 +2,7 @@ node_modules/
 dist/
 artifacts/
 cache/
+typechain-types/
 coverage/
 .env
 deployments/*.json

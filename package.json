@@ -2,14 +2,14 @@
   "name": "whitesettl",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run compile && vite build",
-    "compile": "hardhat compile",
-    "test": "hardhat test",
-    "deploy:testnet": "hardhat run scripts/deploy.ts --network whitechainSepolia",
-    "verify:prepare": "hardhat compile"
+    "build": "npm run typecheck && npm run compile && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "compile": "TS_NODE_PROJECT=tsconfig.hardhat.json hardhat compile",
+    "test": "TS_NODE_PROJECT=tsconfig.hardhat.json hardhat test",
+    "deploy:testnet": "TS_NODE_PROJECT=tsconfig.hardhat.json hardhat run scripts/deploy.ts --network whitechainSepolia",
+    "verify:prepare": "TS_NODE_PROJECT=tsconfig.hardhat.json hardhat compile"
   },
   "dependencies": {
     "@tanstack/react-query": "5.66.8",
