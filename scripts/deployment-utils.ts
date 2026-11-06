@@ -34,6 +34,19 @@ export function requireAddress(value: string | undefined, label: string) {
   return ethers.getAddress(value);
 }
 
+export function requireDistinctDemoWallets(deployerAddress: string, wallets: string[]) {
+  const deployer = requireAddress(deployerAddress, "deployer");
+  if (wallets.length !== 2) throw new Error("TEST_WALLETS must contain exactly two addresses: seller and buyer.");
+  const recipients = wallets.map((wallet, index) => requireAddress(wallet, `TEST_WALLETS[${index}]`));
+  if (recipients[0].toLowerCase() === recipients[1].toLowerCase()) {
+    throw new Error("Seller and buyer wallets must be distinct.");
+  }
+  if (recipients.some(wallet => wallet.toLowerCase() === deployer.toLowerCase())) {
+    throw new Error("Deployer, seller, and buyer must be three distinct wallets.");
+  }
+  return recipients;
+}
+
 export async function requireContractCode(value: string, label: string) {
   if (await ethers.provider.getCode(value) === "0x") {
     throw new Error(`${label} (${value}) has no deployed bytecode on Whitechain Sepolia.`);

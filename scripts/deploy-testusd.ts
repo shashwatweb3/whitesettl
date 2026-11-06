@@ -1,14 +1,15 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { ethers } from "hardhat";
-import { assertSepoliaDeploymentTarget, deployTestUsdAndMint } from "./deployment-utils";
+import { assertSepoliaDeploymentTarget, deployTestUsdAndMint, requireDistinctDemoWallets } from "./deployment-utils";
 
 async function main() {
   if (!process.env.DEPLOYER_PRIVATE_KEY) throw new Error("DEPLOYER_PRIVATE_KEY is required. Deployment requires explicit user approval.");
   const target = await assertSepoliaDeploymentTarget();
-  const recipients = (process.env.TEST_WALLETS || "").split(",").map(wallet => wallet.trim()).filter(Boolean);
+  const [deployer] = await ethers.getSigners();
+  if (!deployer) throw new Error("No deployment account is available.");
+  const recipients = requireDistinctDemoWallets(deployer.address, (process.env.TEST_WALLETS || "").split(",").map(wallet => wallet.trim()).filter(Boolean));
   const amount = process.env.TESTUSD_MINT_AMOUNT || "10000";
   const { tokenAddress, decimals, recipients: wallets, mintAmount } = await deployTestUsdAndMint(recipients, amount);
-  const [deployer] = await ethers.getSigners();
   const deployment = {
     ...target,
     nativeCurrency: "WBT",
