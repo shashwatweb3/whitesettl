@@ -173,6 +173,32 @@ export async function deployTestUsdAndMint(wallets: string[], amount: string, pr
   return { token, tokenAddress, decimals, recipients, mintAmount };
 }
 
+export async function deployPublicTestUsd(progress: DeploymentProgress) {
+  const [deployer] = await ethers.getSigners();
+  if (!deployer) throw new Error("No deployment signer is available.");
+  const Token = await ethers.getContractFactory("TestUSD");
+  const token = await deployOrReuseContract("TestUSD", Token, [deployer.address], progress);
+  const tokenAddress = requireAddress(await token.getAddress(), "TESTUSD");
+  await requireContractCode(tokenAddress, "TESTUSD");
+  const decimals = Number(await token.decimals());
+  if (await token.name() !== "WhiteSETTL Test USD" || await token.symbol() !== "TESTUSD" || decimals !== 6) {
+    throw new Error("Deployed TESTUSD metadata did not match the test-token faucet specification.");
+  }
+  const faucet = new ethers.Contract(tokenAddress, [
+    "function CLAIM_AMOUNT() view returns (uint256)",
+    "function CLAIM_COOLDOWN() view returns (uint256)",
+    "function lastClaimAt(address) view returns (uint256)",
+    "function claim()",
+  ], ethers.provider);
+  const claimAmount = await faucet.CLAIM_AMOUNT();
+  const claimCooldown = await faucet.CLAIM_COOLDOWN();
+  if (claimAmount !== 10_000n * 10n ** 6n || claimCooldown !== 24n * 60n * 60n) {
+    throw new Error("Deployed TESTUSD faucet parameters did not match the public testnet configuration.");
+  }
+  await faucet.lastClaimAt(deployer.address);
+  return { token, tokenAddress, decimals, name: await token.name(), symbol: await token.symbol(), claimAmount, claimCooldown };
+}
+
 export async function saveDeploymentRegistry(registry: Record<string, unknown>) {
   if (registry.chainId !== Number(WHITECHAIN_SEPOLIA_CHAIN_ID) || registry.rpcUrl !== WHITECHAIN_SEPOLIA_RPC || registry.nativeCurrency !== WHITECHAIN_NATIVE_SYMBOL) {
     throw new Error("Refusing to generate frontend config for a non-Whitechain Sepolia deployment.");

@@ -29,25 +29,27 @@ Mainnet is intentionally absent from Hardhat configuration. Deployment scripts a
 
 ## Deployment
 
-### TESTUSD Sepolia demo
+### Public TESTUSD Sepolia launch
 
-`TestUSD` is named **WhiteSETTL Test USD**, symbol `TESTUSD`, and has 6 decimals. It is not USDC or USDT and has no production value. Minting requires `MINTER_ROLE`; only the deployer/admin receives that role initially. The deployment scripts are restricted to Whitechain Sepolia and never configure mainnet.
+`TestUSD` is named **WhiteSETTL Test USD**, symbol `TESTUSD`, and has 6 decimals. It is a worthless testnet-only token, not USDC or USDT. Any wallet may claim 10,000 TESTUSD once every 24 hours per address. The cooldown is not Sybil-resistant: people can create multiple wallets, so this is a hackathon testnet faucet, not a scarcity or identity mechanism. Administrative `mint` and `mintOnce` remain restricted to `MINTER_ROLE`; only the deployer/admin receives that role initially. Deployment scripts are restricted to Whitechain Sepolia and never configure mainnet.
 
 1. Get WBT for gas from the [Whitechain Sepolia faucet](https://faucet.testnet.whitechain.io/).
-2. Create a local `.env` from `.env.example`. Set `DEPLOYER_PRIVATE_KEY` to a dedicated testnet-only wallet key, `TEST_WALLETS` to two distinct comma-separated seller and buyer addresses, and optionally `TESTUSD_MINT_AMOUNT` (human-readable token amount per wallet; default `10000`) and `TREASURY_ADDRESS`.
-3. Review the target address and environment values carefully. The command below deploys and signs transactions; run it only after explicit approval:
+2. Create a local `.env` from `.env.example`. Set only `DEPLOYER_PRIVATE_KEY` to a fresh, dedicated testnet-only wallet key. `TREASURY_ADDRESS` is optional and defaults to the deployer. Public deployment does not require `TEST_WALLETS`, seller/buyer addresses, or a token mint amount. Keep the key private and local; never paste it into chat or commit it.
+3. Review the target and environment values carefully. The command below deploys and signs transactions; run it only after explicit approval:
 
 ```bash
-npm run deploy:demo:testnet
+npm run deploy:public:testnet
 ```
 
-The sequence deploys TESTUSD, mints the configured amount to each designated test wallet, deploys the protocol, grants and verifies roles, checks token decimals and contract bytecode, then writes `deployments/whitechain-sepolia.json` and `deployments/whitechain-sepolia.frontend.env`. Copy the generated frontend values into `.env.local` and restart Vite. `.env.local` is git-ignored.
+The public sequence deploys TESTUSD with the faucet, deploys the six protocol contracts, initializes dependencies, grants and verifies roles, checks token metadata and bytecode, then writes `deployments/whitechain-sepolia.json` and `deployments/whitechain-sepolia.frontend.env`. It makes no initial TESTUSD mints. Copy the generated frontend values into `.env.local` and restart Vite. `.env.local` is git-ignored. Every wallet still needs WBT for its own gas transactions; TESTUSD cannot pay gas.
+
+The old optional prefunded two-wallet flow remains available as `npm run deploy:demo:testnet` for backward compatibility. It requires `TEST_WALLETS` and `TESTUSD_MINT_AMOUNT`; those variables are not used by the public launch command.
 
 Each completed contract deployment and role grant is checkpointed in the ignored `deployments/.whitechain-sepolia-progress.json` file, including the deployed runtime-code hash. TESTUSD allocations use on-chain idempotency IDs, so restarting the same command after an interruption will not mint the same allocation twice. The helper verifies saved bytecode hashes and initialization before reusing a checkpoint and stops if environment inputs differ. If interruption occurs between a chain receipt and local checkpoint write, inspect the deployer's recent Sepolia transactions before deciding whether to resume; do not delete/restart the journal blindly.
 
 To deploy TESTUSD alone, use `npm run deploy:testusd`; this still requires `TEST_WALLETS` and Sepolia WBT for gas. To deploy against a separately verified token instead, set its official `PAYMENT_TOKEN_ADDRESS`, `DEPLOYER_PRIVATE_KEY`, and optional `TREASURY_ADDRESS`, then explicitly run `npm run deploy:testnet`. The script reads token `decimals()` and `symbol()` from the deployed contract; it does not invent an address.
 
-Deployment order is: `TestUSD` (demo flow only), `InvoiceNFT`, `LiquidityVault`, `InvoiceRegistry`, `AdvanceEngine`, `Reputation`, `SettlementRouter`, then role grants and role/dependency verification. The external-token flow starts at `InvoiceNFT` and otherwise follows the same order. No deployment command has been run as part of this development work.
+Deployment order is: `TestUSD`, `InvoiceNFT`, `LiquidityVault`, `InvoiceRegistry`, `AdvanceEngine`, `Reputation`, `SettlementRouter`, then dependency initialization, role grants, and role/dependency verification. The external-token and optional prefunded-demo flows use the same protocol order. No deployment command has been run as part of this development work.
 
 The current source includes constructor and interface changes for invoice ownership callbacks, principal-aware repayment accounting, and cumulative financed reputation. Do not point the updated frontend at an older deployment: these changes require a fresh deployment or a separately reviewed migration. The deployment scripts never modify existing contracts and are guarded to Whitechain Sepolia only.
 

@@ -23,6 +23,41 @@ describe("WhiteSETTL TestUSD (testnet only)", function () {
     await expect(token.mintOnce(allocation, seller.address, 1_000_000n)).revertedWith("allocation used");
   });
 
+  it("lets any wallet claim 10,000 TESTUSD and enforces a 24-hour per-address cooldown", async () => {
+    const [admin, firstWallet, secondWallet] = await ethers.getSigners();
+    const Token = await ethers.getContractFactory("TestUSD");
+    const token = await Token.deploy(admin.address);
+    const amount = 10_000_000_000n;
+    const claimReceipt = await (await token.connect(firstWallet).claim()).wait();
+    const claimBlock = await ethers.provider.getBlock(claimReceipt!.blockNumber);
+    const claimTimestamp = BigInt(claimBlock!.timestamp);
+    expect(await token.lastClaimAt(firstWallet.address)).eq(claimTimestamp);
+    await expect(claimReceipt!)
+      .to.emit(token, "TestTokensClaimed")
+      .withArgs(firstWallet.address, amount, claimTimestamp + 24n * 60n * 60n);
+    expect(await token.balanceOf(firstWallet.address)).eq(amount);
+    await expect(token.connect(firstWallet).claim())
+      .to.be.revertedWithCustomError(token, "ClaimCooldownActive");
+    await expect(token.connect(secondWallet).claim()).to.emit(token, "TestTokensClaimed");
+    expect(await token.balanceOf(secondWallet.address)).eq(amount);
+
+    await ethers.provider.send("evm_increaseTime", [24 * 60 * 60]);
+    await ethers.provider.send("evm_mine", []);
+    await expect(token.connect(firstWallet).claim()).to.emit(token, "TestTokensClaimed");
+    expect(await token.balanceOf(firstWallet.address)).eq(amount * 2n);
+  });
+
+  it("keeps administrative minting restricted after enabling public claims", async () => {
+    const [admin, claimant, unauthorized] = await ethers.getSigners();
+    const Token = await ethers.getContractFactory("TestUSD");
+    const token = await Token.deploy(admin.address);
+    await token.connect(claimant).claim();
+    await expect(token.connect(unauthorized).mint(claimant.address, 1n))
+      .to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount");
+    await expect(token.connect(unauthorized).mintOnce(ethers.keccak256(ethers.toUtf8Bytes("id")), claimant.address, 1n))
+      .to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount");
+  });
+
   it("supports the complete two-wallet invoice payment and rejects duplicate payment", async () => {
     const [admin, seller, buyer, treasury] = await ethers.getSigners();
     const Token = await ethers.getContractFactory("TestUSD");

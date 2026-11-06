@@ -235,6 +235,40 @@ export const reputationAbi = [
   },
 ] as const;
 
+export const testUsdFaucetAbi = [
+  {
+    type: "function",
+    name: "claim",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "CLAIM_AMOUNT",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "lastClaimAt",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "event",
+    name: "TestTokensClaimed",
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: "claimant", type: "address" },
+      { indexed: false, name: "amount", type: "uint256" },
+      { indexed: false, name: "nextClaimAt", type: "uint256" },
+    ],
+  },
+] as const;
+
 export const erc20Abi = [
   {
     type: "function",

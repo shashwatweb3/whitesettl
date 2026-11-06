@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { formatUnits, isAddressEqual, parseUnits, zeroAddress, type Hash } from "viem";
-import { Check, ExternalLink, HandCoins } from "lucide-react";
+import { useAccount, useConnect, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { formatUnits, isAddressEqual, parseEventLogs, parseUnits, zeroAddress, type Hash } from "viem";
+import { Check, ExternalLink, HandCoins, Droplets, Wallet } from "lucide-react";
 import { useSellerInvoices, type SellerInvoice } from "./InvoiceFlows";
-import { advanceEngineAbi, erc20Abi, reputationAbi, tokenSymbol, vaultAbi } from "./contracts";
+import { advanceEngineAbi, erc20Abi, reputationAbi, testUsdFaucetAbi, tokenSymbol, vaultAbi } from "./contracts";
 import { contracts, explorerTx, whitechainSepolia } from "./network";
 import "./protocol-flows.css";
 
@@ -165,6 +165,79 @@ export function LiquidityPage() {
 
 function Metric({ label, value, delta }: { label: string; value: string; delta: string }) {
   return <section className="metric"><p>{label}</p><strong>{value}</strong><small>{delta}</small></section>;
+}
+
+export function TestUSDFaucetPage() {
+  const { address, chainId, isConnected } = useAccount();
+  const { connect, connectors } = useConnect();
+  const { switchChain } = useSwitchChain();
+  const [hash, setHash] = useState<Hash>();
+  const [confirmedHash, setConfirmedHash] = useState<Hash>();
+  const handledClaimHash = useRef<Hash>();
+  const [now, setNow] = useState(Math.floor(Date.now() / 1000));
+  const [error, setError] = useState("");
+  const { writeContractAsync, isPending } = useWriteContract();
+  const amount = useReadContract({ address: contracts.paymentToken ?? zeroAddress, abi: testUsdFaucetAbi, functionName: "CLAIM_AMOUNT", chainId: whitechainSepolia.id, query: { enabled: Boolean(contracts.paymentToken) } });
+  const lastClaim = useReadContract({ address: contracts.paymentToken ?? zeroAddress, abi: testUsdFaucetAbi, functionName: "lastClaimAt", args: [address ?? zeroAddress], chainId: whitechainSepolia.id, query: { enabled: Boolean(contracts.paymentToken && address) } });
+  const balance = useReadContract({ address: contracts.paymentToken ?? zeroAddress, abi: erc20Abi, functionName: "balanceOf", args: [address ?? zeroAddress], chainId: whitechainSepolia.id, query: { enabled: Boolean(contracts.paymentToken && address) } });
+  const decimals = useReadContract({ address: contracts.paymentToken ?? zeroAddress, abi: erc20Abi, functionName: "decimals", chainId: whitechainSepolia.id, query: { enabled: Boolean(contracts.paymentToken) } });
+  const receipt = useWaitForTransactionReceipt({ hash, chainId: whitechainSepolia.id });
+  const availableAt = lastClaim.data === undefined ? undefined : Number(lastClaim.data) + 24 * 60 * 60;
+  const remaining = availableAt === undefined ? 0 : Math.max(0, availableAt - now);
+  const faucetConfigValid = amount.data === 10_000_000_000n && decimals.data === 6;
+  const faucetReadsReady = amount.data !== undefined && lastClaim.data !== undefined && balance.data !== undefined && decimals.data !== undefined;
+  const formatCountdown = (seconds: number) => `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m ${seconds % 60}s`;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!receipt.isSuccess || !receipt.data || !hash || handledClaimHash.current === hash) return;
+    handledClaimHash.current = hash;
+    if (receipt.data.status !== "success") {
+      setError("Claim transaction reverted on Whitechain Sepolia.");
+      return;
+    }
+    try {
+      const tokenLogs = receipt.data.logs.filter(log => contracts.paymentToken && isAddressEqual(log.address, contracts.paymentToken));
+      const claims = parseEventLogs({ abi: testUsdFaucetAbi, eventName: "TestTokensClaimed", logs: tokenLogs });
+      const claimEvent = claims.find(event => address && isAddressEqual(event.args.claimant, address) && event.args.amount === amount.data);
+      if (!claimEvent) throw new Error("Successful receipt did not contain the expected TestTokensClaimed event.");
+      void Promise.all([balance.refetch(), lastClaim.refetch()])
+        .then(() => setConfirmedHash(hash))
+        .catch(reason => setError(reason instanceof Error ? reason.message : "Claim confirmed, but updated wallet reads failed."));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to verify faucet claim event.");
+    }
+  }, [address, amount.data, balance.refetch, hash, lastClaim.refetch, receipt.data, receipt.isSuccess]);
+
+  async function claim() {
+    if (!contracts.paymentToken || chainId !== whitechainSepolia.id || remaining > 0) return;
+    setError("");
+    setConfirmedHash(undefined);
+    try {
+      setHash(await writeContractAsync({ address: contracts.paymentToken, abi: testUsdFaucetAbi, functionName: "claim", args: [], chainId: whitechainSepolia.id }));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "TESTUSD claim failed.");
+    }
+  }
+
+  return <section className="page narrow">
+    <p className="eyebrow">TESTNET TOKEN FAUCET</p><h1>Get TESTUSD</h1>
+    <p className="sub">Claim 10,000 WhiteSETTL Test USD on Whitechain Sepolia. TESTUSD is a worthless testnet-only token, not USDC or USDT.</p>
+    {!contracts.paymentToken && <p className="notice">TESTUSD faucet is unavailable until a deployed Sepolia token address is configured.</p>}
+    {contracts.paymentToken && amount.data !== undefined && decimals.data !== undefined && !faucetConfigValid && <p className="error" role="alert">Configured token does not match the TESTUSD faucet parameters; claims are disabled.</p>}
+    {!isConnected ? <button className="button primary" onClick={() => connect({ connector: connectors[0] })}><Wallet size={16}/> Connect wallet</button>
+      : chainId !== whitechainSepolia.id ? <button className="button warn" onClick={() => switchChain({ chainId: whitechainSepolia.id })}>Switch to Whitechain Sepolia</button>
+      : <section className="panel empty"><Droplets size={28}/><h2>{!faucetReadsReady ? "Checking faucet status…" : remaining > 0 ? `Next claim in ${formatCountdown(remaining)}` : "Claim available"}</h2><p>Claim amount: {amount.data !== undefined && decimals.data !== undefined ? formatAmount(amount.data, decimals.data) : "—"}</p><p>Wallet balance: {formatAmount(balance.data, decimals.data)}</p><button className="button primary" disabled={!contracts.paymentToken || !faucetReadsReady || !faucetConfigValid || isPending || receipt.isLoading || remaining > 0} onClick={claim}>{isPending ? "Confirm in wallet…" : receipt.isLoading ? "Confirming on Whitechain…" : "Claim 10,000 TESTUSD"}</button></section>}
+    <p className="notice">A per-address cooldown is not Sybil-resistant: people can create multiple wallets. This is only a hackathon testnet faucet. You still need WBT to pay transaction gas; get test WBT from the <a href="https://faucet.testnet.whitechain.io/" target="_blank" rel="noreferrer">official Whitechain Sepolia faucet <ExternalLink size={14}/></a>.</p>
+    {hash && <p className="notice">Claim submitted: <a href={explorerTx(hash)} target="_blank" rel="noreferrer">{hash}</a></p>}
+    {error && <p className="error" role="alert">{error}</p>}
+    {receipt.isError && <p className="error" role="alert">Claim confirmation failed: {receipt.error.message}</p>}
+    {confirmedHash && <div className="success"><Check size={22}/><h2>TESTUSD claim confirmed</h2><p>Your balance and cooldown were refreshed from Whitechain Sepolia.</p><a className="button" href={explorerTx(confirmedHash)} target="_blank" rel="noreferrer">View transaction on Explorer <ExternalLink size={15}/></a></div>}
+  </section>;
 }
 
 export function ReputationPage() {
