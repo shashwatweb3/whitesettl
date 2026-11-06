@@ -1,0 +1,39 @@
+{
+  "name": "whitesettl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run compile && vite build",
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:testnet": "hardhat run scripts/deploy.ts --network whitechainSepolia",
+    "verify:prepare": "hardhat compile"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.66.8",
+    "lucide-react": "0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "7.2.0",
+    "viem": "2.23.9",
+    "wagmi": "2.14.11"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "5.0.0",
+    "@openzeppelin/contracts": "5.2.0",
+    "@types/node": "22.10.2",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.3.4",
+    "dotenv": "16.4.7",
+    "hardhat": "2.29.1",
+    "typescript": "5.7.2",
+    "vite": "6.0.5"
+  },
+  "overrides": {
+    "@babel/core": "7.29.7",
+    "@babel/parser": "7.29.12"
+  }
+}
