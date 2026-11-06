@@ -4,5 +4,6 @@ artifacts/
 cache/
 typechain-types/
 coverage/
-.env
-deployments/*.json
+.env*
+!.env.example
+deployments/

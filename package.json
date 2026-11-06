@@ -8,7 +8,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "compile": "TS_NODE_PROJECT=tsconfig.hardhat.json hardhat compile",
     "test": "TS_NODE_PROJECT=tsconfig.hardhat.json hardhat test",
+    "deploy:testusd": "TS_NODE_PROJECT=tsconfig.hardhat.json hardhat run scripts/deploy-testusd.ts --network whitechainSepolia",
     "deploy:testnet": "TS_NODE_PROJECT=tsconfig.hardhat.json hardhat run scripts/deploy.ts --network whitechainSepolia",
+    "deploy:demo:testnet": "TS_NODE_PROJECT=tsconfig.hardhat.json hardhat run scripts/deploy-testnet-demo.ts --network whitechainSepolia",
     "verify:prepare": "TS_NODE_PROJECT=tsconfig.hardhat.json hardhat compile"
   },
   "dependencies": {

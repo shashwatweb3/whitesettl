@@ -31,14 +31,22 @@ export function useSellerInvoices() {
     refetchInterval: 12_000,
     queryFn: async (): Promise<SellerInvoice[]> => {
       if (!address || !publicClient || !contracts.registry || contractDeploymentBlock === undefined) return [];
-      const logs = await publicClient.getLogs({
-        address: contracts.registry,
-        event: invoiceIssuedEvent,
-        args: { seller: address },
-        fromBlock: contractDeploymentBlock,
-        toBlock: await publicClient.getBlockNumber(),
-      });
-      return Promise.all(logs.slice(-100).reverse().map(async (log) => {
+      const recentLogs = [];
+      let endBlock = await publicClient.getBlockNumber();
+      while (endBlock >= contractDeploymentBlock && recentLogs.length < 100) {
+        const startBlock = endBlock - contractDeploymentBlock > 1_999n ? endBlock - 1_999n : contractDeploymentBlock;
+        const blockLogs = await publicClient.getLogs({
+          address: contracts.registry,
+          event: invoiceIssuedEvent,
+          args: { seller: address },
+          fromBlock: startBlock,
+          toBlock: endBlock,
+        });
+        recentLogs.push(...blockLogs.reverse());
+        if (startBlock === 0n) break;
+        endBlock = startBlock - 1n;
+      }
+      return Promise.all(recentLogs.slice(0, 100).map(async (log) => {
         const id = log.args.invoiceId;
         if (id === undefined) throw new Error("InvoiceIssued event did not include an invoice ID.");
         const invoice = await publicClient.readContract({ address: contracts.registry!, abi: registryAbi, functionName: "getInvoice", args: [id] });
@@ -100,8 +108,10 @@ export function NewInvoiceFlow() {
       return;
     }
     try {
-      const events = parseEventLogs({ abi: registryAbi, eventName: "InvoiceIssued", logs: receipt.data.logs });
-      const invoiceId = events[0]?.args.invoiceId;
+      const registryLogs = receipt.data.logs.filter(log => contracts.registry && isAddressEqual(log.address, contracts.registry));
+      const events = parseEventLogs({ abi: registryAbi, eventName: "InvoiceIssued", logs: registryLogs });
+      const issued = events.find(event => address && validBuyer && isAddressEqual(event.args.seller, address) && isAddressEqual(event.args.buyer, getAddress(buyer)) && contracts.paymentToken && isAddressEqual(event.args.asset, contracts.paymentToken));
+      const invoiceId = issued?.args.invoiceId;
       if (invoiceId === undefined) {
         setEventMissing(true);
         return;
@@ -168,10 +178,12 @@ export function PublicPaymentFlow() {
   const { address, chainId, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { switchChain } = useSwitchChain();
+  const publicClient = usePublicClient({ chainId: whitechainSepolia.id });
   const { writeContractAsync, isPending, error: writeError } = useWriteContract();
   const [txHash, setTxHash] = useState<Hash>();
   const [txKind, setTxKind] = useState<"approve" | "pay">();
   const [paidHash, setPaidHash] = useState<Hash>();
+  const [settlementResult, setSettlementResult] = useState<{ fee: bigint; repayment: bigint; sellerProceeds: bigint }>();
   const [actionError, setActionError] = useState("");
   const handledHash = useRef<Hash>();
   const validId = /^\d+$/.test(invoiceId) && BigInt(invoiceId || "0") > 0n;
@@ -190,6 +202,21 @@ export function PublicPaymentFlow() {
     functionName: "decimals",
     chainId: whitechainSepolia.id,
     query: { enabled: Boolean(contracts.paymentToken) },
+  });
+  const customerBalance = useReadContract({
+    address: contracts.paymentToken ?? zeroAddress,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [address ?? zeroAddress],
+    chainId: whitechainSepolia.id,
+    query: { enabled: Boolean(contracts.paymentToken && address) },
+  });
+  const feeBpsRead = useReadContract({
+    address: contracts.router ?? zeroAddress,
+    abi: routerAbi,
+    functionName: "feeBps",
+    chainId: whitechainSepolia.id,
+    query: { enabled: Boolean(contracts.router) },
   });
   const amount = invoiceRead.data?.amount;
   const buyer = invoiceRead.data?.buyer;
@@ -227,11 +254,39 @@ export function PublicPaymentFlow() {
         setTxKind(undefined);
       });
     } else if (txKind === "pay") {
-      setPaidHash(txHash);
-      setTxHash(undefined);
-      setTxKind(undefined);
+      void (async () => {
+        if (!publicClient || !contracts.router || !contracts.registry || !contracts.paymentToken || !buyer || !amount || feeBpsRead.data === undefined) {
+          throw new Error("Cannot verify the settlement event and invoice state from the configured contracts.");
+        }
+        const routerLogs = receipt.data!.logs.filter(log => isAddressEqual(log.address, contracts.router!));
+        const events = parseEventLogs({ abi: routerAbi, eventName: "InvoiceSettled", logs: routerLogs });
+        const settled = events.find(event => event.args.invoiceId === id && isAddressEqual(event.args.buyer, buyer));
+        if (!settled) throw new Error("Successful receipt did not contain the matching InvoiceSettled event.");
+        const expectedFee = amount * BigInt(feeBpsRead.data) / 10_000n;
+        const expectedSellerProceeds = amount - expectedFee - settled.args.repayment;
+        if (settled.args.fee !== expectedFee || settled.args.sellerProceeds !== expectedSellerProceeds) {
+          throw new Error("Settlement event fee or seller proceeds do not match the invoice and configured fee.");
+        }
+        const settledInvoice = await publicClient.readContract({
+          address: contracts.registry,
+          abi: registryAbi,
+          functionName: "getInvoice",
+          args: [id],
+          blockNumber: receipt.data!.blockNumber,
+        });
+        if (settledInvoice.status !== 6) throw new Error("Settlement event was emitted, but the invoice is not cleared at the receipt block.");
+        setSettlementResult({ fee: settled.args.fee, repayment: settled.args.repayment, sellerProceeds: settled.args.sellerProceeds });
+        setPaidHash(txHash);
+        await Promise.all([customerBalance.refetch(), invoiceRead.refetch(), allowanceRead.refetch()]);
+        setTxHash(undefined);
+        setTxKind(undefined);
+      })().catch(error => {
+        setActionError(errorText(error instanceof Error ? error : null));
+        setTxHash(undefined);
+        setTxKind(undefined);
+      });
     }
-  }, [allowanceRead, receipt.data, receipt.isSuccess, txHash, txKind]);
+  }, [address, allowanceRead, amount, buyer, customerBalance, feeBpsRead.data, id, invoiceRead, publicClient, receipt.data, receipt.isSuccess, txHash, txKind]);
 
   useEffect(() => {
     document.title = `Invoice ${invoiceId || "not found"} — WhiteSETTL`;
@@ -276,6 +331,7 @@ export function PublicPaymentFlow() {
         {decimalsRead.isError && <p className="error" role="alert">Could not verify token decimals: {errorText(decimalsRead.error)}</p>}
         {invoiceStatus !== undefined && !payableStatus && <p className="notice">This invoice is not in a payable state.</p>}
         <div className="payment-note"><ShieldCheck size={17}/><span>Payment and confirmation are read from Whitechain Sepolia. WBT is used only for gas.</span></div>
+        {address && customerBalance.data !== undefined && decimals !== undefined && <p className="notice">Connected wallet balance: {formatUnits(customerBalance.data, decimals)} {tokenSymbol}</p>}
         {!isConnected ? <button className="button primary wide" onClick={() => connect({ connector: connectors[0] })}><Wallet size={17}/> Connect buyer wallet</button>
           : chainId !== whitechainSepolia.id ? <button className="button warn wide" onClick={() => switchChain({ chainId: whitechainSepolia.id })}>Switch to Whitechain Sepolia</button>
           : !isBuyer ? <p className="notice">Connect the customer wallet authorized on this invoice to pay.</p>
@@ -284,7 +340,7 @@ export function PublicPaymentFlow() {
         {actionError && <p className="error" role="alert">{actionError}</p>}
         {txHash && <p className="notice">{txKind === "approve" ? "Approval" : "Payment"} submitted, waiting for confirmation. <a href={explorerTx(txHash)} target="_blank" rel="noreferrer">View on Explorer</a></p>}
         {receipt.isError && <p className="error" role="alert">Transaction was not confirmed: {errorText(receipt.error)}</p>}
-        {paidHash && <div className="success"><Check size={22}/><h2>Payment confirmed</h2><p>Whitechain Sepolia confirmed the payment transaction.</p><a className="button" href={explorerTx(paidHash)} target="_blank" rel="noreferrer">View on Explorer <ExternalLink size={15}/></a></div>}
+        {paidHash && settlementResult && <div className="success"><Check size={22}/><h2>Payment confirmed</h2><p>Seller proceeds: {formatUnits(settlementResult.sellerProceeds, decimals ?? 6)} {tokenSymbol}</p><p>Protocol fee: {formatUnits(settlementResult.fee, decimals ?? 6)} {tokenSymbol}</p>{settlementResult.repayment > 0n && <p>Vault repayment: {formatUnits(settlementResult.repayment, decimals ?? 6)} {tokenSymbol}</p>}<a className="button" href={explorerTx(paidHash)} target="_blank" rel="noreferrer">View on Explorer <ExternalLink size={15}/></a></div>}
       </>}
       <p className="legal">Invoice details and payment state are read from the configured contract. No success is shown before transaction confirmation.</p>
     </section><p className="pay-foot">WhiteSETTL · Whitechain Sepolia · WBT gas token</p>
